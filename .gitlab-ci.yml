@@ -1,0 +1,50 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  TOKEN_URL: "https://api.ppe.refinitiv.com/auth/oauth/v2/token"
+  DEPLOY_URL: "https://api.refinitiv.com/admin/v1/api-deploy/stage?environment=PreProduction"
+  MACHINE_ID: "${MACHINE_ID}"  # Store these variables in GitLab CI/CD Variables
+  USERNAME: "${USERNAME}"      # Store these variables in GitLab CI/CD Variables
+  PASSWORD: "${PASSWORD}"      # Store these variables in GitLab CI/CD Variables
+  CLIENT_ID: "${CLIENT_ID}"    # Store these variables in GitLab CI/CD Variables
+  ZIP_NAME: "artifacts.zip"
+
+build:
+  stage: build
+  script:
+    - echo "Building artifacts..."
+    # Zip all files in the repo (you can specify exact folders/files if needed)
+    - zip -r ${ZIP_NAME} .
+    - echo "Artifacts have been zipped."
+
+  artifacts:
+    paths:
+      - ${ZIP_NAME}
+    expire_in: 1 hour  # Artifacts will expire in 1 hour
+
+deploy:
+  stage: deploy
+  dependencies:
+    - build
+  script:
+    - echo "Requesting access token..."
+    - |
+      export ACCESS_TOKEN=$(curl --location --request POST $TOKEN_URL \
+        --header 'Content-Type: application/x-www-form-urlencoded' \
+        --data-urlencode "username=${USERNAME}" \
+        --data-urlencode "password=${PASSWORD}" \
+        --data-urlencode "client_id=${CLIENT_ID}" \
+        --data-urlencode "grant_type=password" \
+        --data-urlencode "scope=trapi" \
+        --data-urlencode "takeExclusiveSignOnControl=true" | jq -r '.access_token')
+    - echo "Access token obtained: ${ACCESS_TOKEN}"
+    
+    - echo "Deploying the artifact..."
+    - |
+      curl --location --request POST "$DEPLOY_URL" \
+        --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+        --header "Content-Type: application/octet-stream" \
+        --data-binary "@${ZIP_NAME}"
+    - echo "Deployment complete."
